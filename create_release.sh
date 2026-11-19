@@ -1,28 +1,18 @@
-#!/usr/bin/env bash
-rm kindlefetch.zip
-rm kindlefetch/bin/kindlefetch_config
-rm kindlefetch/bin/zlib_cookies.txt
-rm kindlefetch/bin/.version
+#!/bin/sh
 
-
-get_version() {
-    api_response=$(curl -s -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/justrals/KindleFetch/commits") || {
-        echo "Warning: Failed to fetch version from GitHub API" >&2
-        echo "unknown"
-        return
-    }
-
-    latest_sha=$(echo "$api_response" | grep -m1 '"sha":' | cut -d'"' -f4 | cut -c1-7)
-    
-    if [ -n "$latest_sha" ]; then
-        echo "${latest_sha}"
-    fi
-}
-
-VERSION=$(get_version)
-mkdir -p "$INSTALL_DIR/bin"
-echo "$VERSION" > "kindlefetch/bin/.version"
-
-find kindlefetch -name ".DS_Store" -delete
-
-zip kindlefetch.zip -r kindlefetch
+set -eu
+version="${1:?Usage: create_release.sh vMAJOR.MINOR.PATCH OUTPUT_DIRECTORY [GIT_REF]}"
+output="${2:?Supply an output directory}"
+ref="${3:-HEAD}"
+printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'
+mkdir -p "$output"
+output="$(CDPATH='' cd -- "$output" && pwd)"
+root="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
+stage="$(mktemp -d)"
+trap 'rm -rf "$stage"' EXIT
+git -C "$root" archive "$ref" kindlefetch > "$stage/release.tar"
+tar -xf "$stage/release.tar" -C "$stage"
+git -C "$root" show "$ref:LICENSE" > "$stage/kindlefetch/LICENSE"
+printf '%s\n' "$version" > "$stage/kindlefetch/bin/.version"
+(cd "$stage" && COPYFILE_DISABLE=1 zip -q -r release.zip kindlefetch)
+mv "$stage/release.zip" "$output/kindlefetch.zip"

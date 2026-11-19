@@ -6,6 +6,9 @@
 
 # Variables
 SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+
+# Use bundled modern curl (system curl fails TLS with current mirrors)
+export PATH="$SCRIPT_DIR/curl:$PATH"
 CONFIG_FILE="$SCRIPT_DIR/kindlefetch_config"
 LINK_CONFIG_FILE="$SCRIPT_DIR/link_config"
 VERSION_FILE="$SCRIPT_DIR/.version"
@@ -17,6 +20,15 @@ UPDATE_AVAILABLE=false
 CREATE_SUBFOLDERS=false
 COMPACT_OUTPUT=false
 RESULTS_PER_PAGE=10
+
+# LibGen's front end currently serves a placeholder page to unknown/default
+# curl identities. Keep the working client identity in one place so search and
+# download requests reach the real application.
+KINDLEFETCH_USER_AGENT="${KINDLEFETCH_USER_AGENT:-libgen-downloader/3.3.5}"
+MIRROR_CONFIG_URL="${MIRROR_CONFIG_URL:-https://raw.githubusercontent.com/obsfx/libgen-downloader/configuration/config.v3.json}"
+RK_HARDENING_DIR="${RK_HARDENING_DIR:-$BASE_DIR/extensions/kindlefetch-rk-hardening}"
+MIRROR_CONFIG_CACHE="$RK_HARDENING_DIR/mirror-config.cache"
+LAST_WORKING_LGLI_FILE="$RK_HARDENING_DIR/last-working-lgli"
 
 # Check if running on a Kindle
 if ! { [ -f "/etc/prettyversion.txt" ] || [ -d "/mnt/us" ] || pgrep "lipc-daemon" >/dev/null; }; then
@@ -43,9 +55,10 @@ fi
 
 check_for_updates
 load_config
+refresh_lgli_config
 
 [ -z "$ANNAS_URL" ] && ANNAS_URL=$(find_working_url $ANNAS_MIRROR_URLS)
-[ -z "$LGLI_URL" ] && LGLI_URL=$(find_working_url $LGLI_MIRROR_URLS)
+[ -z "$LGLI_URL" ] && LGLI_URL=$(first_lgli_mirror)
 [ -z "$ZLIB_URL" ] && ZLIB_URL=$(find_working_url $ZLIB_MIRROR_URLS)
 [ -z "$SEARCH_SOURCE" ] && SEARCH_SOURCE="auto"
 
@@ -66,7 +79,7 @@ main_menu() {
 | . \| | | | | (_| | |  __/ | |  __/ || (__| | | |
 |_|\_\_|_| |_|\__,_|_|\___|_|  \___|\__\___|_| |_|
                                                 
-$(load_version) | https://github.com/justrals/KindleFetch
+$(load_version) | https://github.com/renkasiyas/KindleFetch
 "
         if $UPDATE_AVAILABLE; then
             echo "Update available! Select option 6 to install."

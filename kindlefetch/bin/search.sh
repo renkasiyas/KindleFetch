@@ -28,8 +28,8 @@ display_books() {
     local end=$(( start + RESULTS_PER_PAGE - 1 ))
     [ "$end" -ge "$count" ] && end=$((count - 1))
 
-    i=$((end))
-    while [ "$i" -ge "$start" ]; do
+    i=$((start))
+    while [ "$i" -le "$end" ]; do
         book_info="$(echo "$books" | awk -v i=$i 'BEGIN{RS="\\{"; FS="\\}"} NR==i+2{print $1}')"
 
         title="$(get_json_value "$book_info" "title")"
@@ -38,17 +38,17 @@ display_books() {
         description="$(get_json_value "$book_info" "description")"
 
         if [ "$COMPACT_OUTPUT" != true ]; then
-            printf "%2d. %s\n" "$((i+1))" "$title"
+            printf "%2d. %s\n" "$((i-start+1))" "$title"
             [ -n "$description" ] && [ "$description" != "null" ] && echo "    $description"
             echo ""
         else
             printf "%2d. %s by %s in %s format\n" \
-                "$((i+1))" "$title" "$author" "$format"
+                "$((i-start+1))" "$title" "$author" "$format"
             echo ""
         fi
 
         display_index=$((display_index + 1))
-        i=$((i - 1))
+        i=$((i + 1))
     done
 
     local items_on_page=$(( end - start + 1 ))
@@ -88,7 +88,8 @@ search_books() {
         if lgli_search_fetch "$query"; then
             used_lgli=true
         elif [ "$SEARCH_SOURCE" = "lgli" ]; then
-            echo "No LibGen results (mirrors unreachable or no matches)."
+            echo "Search failed. Mirror diagnostics:"
+            sed 's/^/  /' "$TMP_DIR/last_search_diagnostic" 2>/dev/null
             sleep 2
             return 1
         fi
@@ -103,7 +104,13 @@ search_books() {
     
     local encoded_query=$(echo "$query" | sed 's/ /+/g')
     local search_url="$ANNAS_URL/search?page=${page}&q=${encoded_query}${filters}"
-    local html_content="$(curl -s "$search_url") || html_content=$(curl -s -x "$PROXY_URL" "$search_url")"
+    local html_content="$(curl -A "$KINDLEFETCH_USER_AGENT" -f -s -L \
+        --connect-timeout 5 --max-time 20 "$search_url")" || html_content=""
+    if [ -z "$html_content" ] && [ -n "$PROXY_URL" ]; then
+        html_content="$(curl -A "$KINDLEFETCH_USER_AGENT" -f -s -L \
+            --connect-timeout 5 --max-time 20 -x "$PROXY_URL" "$search_url")" || \
+            html_content=""
+    fi
     
     local last_page="$(echo "$html_content" | grep -o 'page=[0-9]\+"' | sort -t= -k2 -nr | head -1 | cut -d= -f2 | tr -d '"')"
     [ -z "$last_page" ] && last_page=1
@@ -206,6 +213,14 @@ search_books() {
     echo "$books" > "$TMP_DIR"/search_results.json
     echo "Anna's Archive ($ANNAS_URL)" > "$TMP_DIR"/last_search_source
 
+    local book_count="$(echo "$books" | grep -o '"title":' | wc -l)"
+    if [ "$book_count" -le 0 ]; then
+        echo "No results were returned. Mirror diagnostics:"
+        sed 's/^/  /' "$TMP_DIR/last_search_diagnostic" 2>/dev/null
+        [ -z "$html_content" ] && echo "  Anna's Archive: connection failed"
+        return 1
+    fi
+
     fi
 
     while true; do
@@ -285,8 +300,8 @@ search_books() {
                     [ "$end" -ge "$count" ] && end=$((count - 1))
                     local items_on_page=$(( end - start + 1 ))
 
-                    if [ "$choice" -ge 1 ] && [ "$choice" -le "$count" ]; then
-                        absolute_index=$(( choice - 1 ))
+                    if [ "$choice" -ge 1 ] && [ "$choice" -le "$items_on_page" ]; then
+                        absolute_index=$(( start + choice - 1 ))
 
                         book_info="$(awk -v i=$absolute_index \
                             'BEGIN{RS="\\{"; FS="\\}"} NR==i+2{print $1}' \
@@ -326,7 +341,7 @@ search_books() {
                                 1)
                                     if [ "$lgli_available" = true ]; then
                                         echo "Proceeding with lgli..."
-                                        if ! lgli_download "$choice"; then
+                                        if ! lgli_download "$((absolute_index + 1))"; then
                                             echo "Download from lgli failed."
                                             sleep 2
                                         else
@@ -340,7 +355,7 @@ search_books() {
                                     if [ "$zlib_available" = true ]; then
                                         if [ "$ZLIB_AUTH" = true ]; then
                                             echo "Proceeding with zlib..."
-                                            if ! zlib_download "$choice"; then
+                                            if ! zlib_download "$((absolute_index + 1))"; then
                                                 echo "Download from zlib failed."
                                                 sleep 2
                                             else
@@ -368,7 +383,7 @@ search_books() {
                                                         save_config
 
                                                         printf "\n\nProceeding with zlib..."
-                                                        if ! zlib_download "$choice"; then
+                                                        if ! zlib_download "$((absolute_index + 1))"; then
                                                             echo "Download from zlib failed."
                                                             sleep 2
                                                         else

@@ -30,6 +30,7 @@ settings_menu() {
         echo "Current mirrors:"
         echo "   Anna's Archive - ${ANNAS_URL}"
         echo "   Library Genesis - ${LGLI_URL}"
+        echo "   LibGen mirror list - ${LGLI_CONFIG_STATUS:-bundled}"
         echo "   ZLibrary - ${ZLIB_URL}"
         echo "8. Change URLs"
         echo ""
@@ -160,7 +161,7 @@ settings_menu() {
                         echo -n "Enter new URL for Library Genesis: "
                         read -r new_lgli_url
 
-                        working_url=$(find_working_url "$new_lgli_url")
+                        working_url=$(find_working_lgli_url "$new_lgli_url")
                         if [ -z "$working_url" ]; then
                             echo "Failed to connect to ${new_lgli_url}."
                             echo -n "Are you sure you want to set this URL anyway? [y/N]: "
