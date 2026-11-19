@@ -9,7 +9,47 @@ catalog_book_field() {
     catalog_lua field "$TMP_DIR/search_results.json" "$1" "$2"
 }
 
-catalog_search() {
+catalog_search() (
+    local query="$1" page="${2:-1}" source="${3:-$SEARCH_SOURCE}"
+    local cache_root="$RK_HARDENING_DIR/catalog-cache"
+    local filters="$SCRIPT_DIR/tmp/current_filter_params"
+    local key snapshot lock staged='' waited=0 result=0
+    if ! mkdir -p "$cache_root"; then
+        catalog_query "$query" "$page" "$source"
+        return $?
+    fi
+    key="$({
+        printf '%s\0' "$query" "$page" "$source" "$RESULTS_PER_PAGE" "$ANNAS_URL" "$PROXY_URL"
+        if [ -f "$filters" ]; then cat "$filters"; fi
+    } | sha256sum)" || return 1
+    snapshot="$cache_root/${key%% *}.json"
+    lock="$snapshot.lock"
+    while ! mkdir "$lock" 2>/dev/null; do
+        if catalog_lua restore "$snapshot" "$TMP_DIR"; then return 0; fi
+        waited=$((waited + 1))
+        if [ "$waited" -ge 75 ]; then
+            catalog_query "$query" "$page" "$source"
+            return $?
+        fi
+        sleep 1
+    done
+    trap 'rmdir "$lock"; [ -z "$staged" ] || rm -f "$staged"' EXIT
+    trap 'exit 1' HUP INT TERM
+    if catalog_lua restore "$snapshot" "$TMP_DIR"; then return 0; fi
+
+    catalog_query "$query" "$page" "$source" || result=$?
+    if [ "$result" -eq 0 ] && staged="$(mktemp "$cache_root/.result.XXXXXX")"; then
+        if catalog_lua snapshot "$TMP_DIR" > "$staged"; then
+            mv "$staged" "$snapshot" && staged=''
+        fi
+        # Bound the cache without depending on a service or a running UI.
+        ls -1t "$cache_root"/*.json 2>/dev/null | tail -n +41 |
+            while IFS= read -r old; do rm -f "$old"; done
+    fi
+    return "$result"
+)
+
+catalog_query() {
     local query="$1" page="${2:-1}" source="${3:-$SEARCH_SOURCE}"
     [ -n "$query" ] || return 1
     rm -f "$TMP_DIR"/search_results.json "$TMP_DIR"/last_search_*

@@ -16,6 +16,45 @@ end
 
 local action, path = arg[1], arg[2]
 
+local snapshot_files = {
+    "search_results.json",
+    "last_search_query",
+    "last_search_page",
+    "last_search_last_page",
+    "last_search_has_prev",
+    "last_search_has_next",
+    "last_search_source",
+}
+
+if action == "snapshot" then
+    local files = {}
+    for _, name in ipairs(snapshot_files) do
+        files[name] = assert(read(path .. "/" .. name))
+    end
+    print(json.encode({ created = os.time(), files = files }))
+    return
+end
+
+if action == "restore" then
+    local content = read(path)
+    local stored = content and json.decode(content)
+    local age = type(stored) == "table" and type(stored.created) == "number" and os.time() - stored.created
+    if not age or age < 0 or age > 300 or type(stored.files) ~= "table" then
+        os.exit(1)
+    end
+    for _, name in ipairs(snapshot_files) do
+        if type(stored.files[name]) ~= "string" then
+            os.exit(1)
+        end
+    end
+    for _, name in ipairs(snapshot_files) do
+        local file = assert(io.open(arg[3] .. "/" .. name, "wb"))
+        assert(file:write(stored.files[name]))
+        assert(file:close())
+    end
+    return
+end
+
 if action == "reply" then
     local status = tonumber(arg[3])
     if status == 0 then

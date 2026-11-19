@@ -24,8 +24,20 @@ with zipfile.ZipFile(sys.argv[1], "w") as archive:
     archive.writestr("META-INF/container.xml", "<container/>")
 PY
 for scenario in primary fallback; do
+    rm -rf "$test_root/extensions/kindlefetch-rk-hardening/catalog-cache"
     KF_FIXTURE="$scenario" sh "$root/tests/terminal-fixture.sh"
     KF_FIXTURE="$scenario" "$lua_bin" "$root/tests/parity.lua"
+    if [ "$scenario" = primary ]; then
+        KF_FIXTURE=fallback sh "$app/bin/command.sh" search 'Pride & Prejudice?' 1 > "$test_root/session-result.json"
+        python3 - "$test_root/terminal-result.json" "$test_root/session-result.json" <<'PYTHON'
+from pathlib import Path
+import json
+import sys
+terminal, gui = (json.loads(Path(path).read_text()) for path in sys.argv[1:])
+assert terminal == gui
+PYTHON
+        echo 'A changed provider response leaves the shared result snapshot intact.'
+    fi
 done
 
 mkdir -p "$test_root/koreader/plugins/kindlefetch.koplugin"

@@ -2,7 +2,8 @@
 
 KindleFetch has a KUAL terminal mode and a KOReader touchscreen mode. Both use the same catalog
 request, settings, edition order, and verified LibGen download code. The catalog searches LibGen
-first and uses the terminal's Anna’s Archive fallback. The default library is `/mnt/us/Books`.
+first and uses the terminal's Anna’s Archive fallback. Results are shared for five minutes so
+switching modes keeps the same editions and order. The default library is `/mnt/us/Books`.
 
 ## Install and use
 
