@@ -56,7 +56,7 @@ for _, book in ipairs(payload.result.books) do
     local year = type(book.year) == 'number' and tostring(book.year) or ''
     local description = 'LibGen lgli · ' .. lang .. ' · ' .. year .. ' · ' .. ext
     rows[#rows + 1] = {
-      author = author, format = ext, id = id, md5 = '', title = title,
+      author = author, format = ext, id = id, md5 = '', title = title, language = lang, year = year,
       url = 'https://libgen.pw/book/' .. id, description = description,
     }
   end

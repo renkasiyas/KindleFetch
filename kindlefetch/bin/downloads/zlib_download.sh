@@ -8,13 +8,12 @@ zlib_download() {
         return 1
     fi
     
-    local book_info="$(awk -v i="$index" 'BEGIN{RS="\\{"; FS="\\}"} NR==i+1{print $1}' "$TMP_DIR"/search_results.json)"
-    if [ -z "$book_info" ]; then
+    local md5
+    md5="$(catalog_book_field "$index" md5)"
+    if ! printf '%s\n' "$md5" | grep -qiE '^[0-9a-f]{32}$'; then
         echo "Invalid book selection" >&2
         return 1
     fi
-    
-    local md5="$(get_json_value "$book_info" "md5")"
 
     local final_url="$(curl -s -L -o /dev/null -w "%{url_effective}" "$ZLIB_URL/md5/$md5")"
 

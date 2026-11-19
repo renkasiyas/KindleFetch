@@ -1,8 +1,8 @@
 #!/bin/sh
 
 lgli_read_response() {
-    LUA_PATH='/mnt/us/koreader/common/?.lua;;' \
-        /mnt/us/koreader/luajit "$SCRIPT_DIR/lgli_spa_json.lua" "$@"
+    LUA_PATH="$BASE_DIR/koreader/common/?.lua;;" \
+        "$BASE_DIR/koreader/luajit" "$SCRIPT_DIR/lgli_spa_json.lua" "$@"
 }
 
 lgli_download_hash() {
@@ -56,21 +56,32 @@ lgli_download_from_mirrors() {
     return 1
 }
 
+lgli_fetch_book() {
+    local id="$1" hash="$2" format="$3" partial="$4"
+    local response="$TMP_DIR/download-response"
+    hash="$(printf '%s' "$hash" | tr '[:upper:]' '[:lower:]')"
+    case "$format" in epub|azw3|mobi|pdf) :;; *) return 1;; esac
+    if ! printf '%s\n' "$hash" | grep -qE '^[0-9a-f]{32}$'; then
+        case "$id" in ''|*[!0-9]*) return 1;; esac
+        if ! hash="$(lgli_download_hash "$id" "$response")"; then
+            echo 'The catalog did not provide a checksum for this book' >&2
+            return 1
+        fi
+    fi
+    if ! lgli_download_from_mirrors "$hash" "$format" "$response" "$partial"; then
+        echo 'None of the Library Genesis mirrors returned the verified book' >&2
+        return 1
+    fi
+}
+
 lgli_download() {
     local index="$1"
     [ -f "$TMP_DIR/search_results.json" ] || { echo 'No search results found' >&2; return 1; }
-    local book_info
-    book_info="$(awk -v i="$index" 'BEGIN{RS="\\{"; FS="\\}"} NR==i+1{print $1}' "$TMP_DIR/search_results.json")"
-    [ -n "$book_info" ] || { echo 'Invalid book selection' >&2; return 1; }
     local id hash title format clean_title final_location book_folder
-    id="$(get_json_value "$book_info" id)"
-    hash="$(get_json_value "$book_info" md5 | tr '[:upper:]' '[:lower:]')"
-    title="$(get_json_value "$book_info" title)"
-    format="$(get_json_value "$book_info" format)"
-    if ! printf '%s\n' "$hash" | grep -qE '^[0-9a-f]{32}$'; then
-        hash=''
-        case "$id" in ''|*[!0-9]*) echo 'Invalid book ID' >&2; return 1;; esac
-    fi
+    id="$(catalog_book_field "$index" id)"
+    hash="$(catalog_book_field "$index" md5)"
+    title="$(catalog_book_field "$index" title)"
+    format="$(catalog_book_field "$index" format | tr '[:upper:]' '[:lower:]')"
     case "$format" in epub|azw3|mobi|pdf) :;; *) echo 'Unsupported book format' >&2; return 1;; esac
     [ -n "$title" ] || return 1
 
@@ -97,23 +108,12 @@ lgli_download() {
         return 1
     fi
 
-    local response partial
-    response="$(mktemp "$TMP_DIR/kindlefetch-lgli.XXXXXX")" || return 1
-    if [ -z "$hash" ] && ! hash="$(lgli_download_hash "$id" "$response")"; then
-        echo 'The catalog did not provide a checksum for this book' >&2
-        rm -f "$response"
+    local partial
+    partial="$(mktemp "$final_location.part.XXXXXX")" || return 1
+    if ! lgli_fetch_book "$id" "$hash" "$format" "$partial"; then
+        rm -f "$partial"
         return 1
     fi
-    if ! partial="$(mktemp "$final_location.part.XXXXXX")"; then
-        rm -f "$response"
-        return 1
-    fi
-    if ! lgli_download_from_mirrors "$hash" "$format" "$response" "$partial"; then
-        rm -f "$response" "$partial"
-        echo 'None of the Library Genesis mirrors returned the verified book' >&2
-        return 1
-    fi
-    rm -f "$response"
     if ! mv -n "$partial" "$final_location"; then
         rm -f "$partial"
         return 1

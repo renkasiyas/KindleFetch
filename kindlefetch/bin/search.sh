@@ -14,44 +14,10 @@ display_books() {
     echo "Source: $(cat "$TMP_DIR"/last_search_source 2>/dev/null)"
     echo ""
 
-    local books="$1"
-    local page="$2"
-    local has_prev="$3"
-    local has_next="$4"
-    local last_page="$5"
-
-    local count
-    count="$(echo "$books" | grep -o '"title":' | wc -l)"
-
-    local display_index=1
-    local start=$(( (page - 1) * RESULTS_PER_PAGE ))
-    local end=$(( start + RESULTS_PER_PAGE - 1 ))
-    [ "$end" -ge "$count" ] && end=$((count - 1))
-
-    i=$((start))
-    while [ "$i" -le "$end" ]; do
-        book_info="$(echo "$books" | awk -v i=$i 'BEGIN{RS="\\{"; FS="\\}"} NR==i+2{print $1}')"
-
-        title="$(get_json_value "$book_info" "title")"
-        author="$(get_json_value "$book_info" "author")"
-        format="$(get_json_value "$book_info" "format")"
-        description="$(get_json_value "$book_info" "description")"
-
-        if [ "$COMPACT_OUTPUT" != true ]; then
-            printf "%2d. %s\n" "$((i-start+1))" "$title"
-            [ -n "$description" ] && [ "$description" != "null" ] && echo "    $description"
-            echo ""
-        else
-            printf "%2d. %s by %s in %s format\n" \
-                "$((i-start+1))" "$title" "$author" "$format"
-            echo ""
-        fi
-
-        display_index=$((display_index + 1))
-        i=$((i + 1))
-    done
-
-    local items_on_page=$(( end - start + 1 ))
+    local page="$1" has_prev="$2" has_next="$3" last_page="$4" source="$5"
+    local start=0
+    case "$source" in LibGen*) start=$(( (page - 1) * RESULTS_PER_PAGE ));; esac
+    catalog_lua render "$TMP_DIR/search_results.json" "$start" "$RESULTS_PER_PAGE" "$COMPACT_OUTPUT"
 
     echo "--------------------------------"
     echo ""
@@ -80,147 +46,10 @@ search_books() {
     
     echo "Searching for '$query' (page $page)..."
 
-    # RK patch 2026-08-12: LibGen-first search dispatch.
-    # SEARCH_SOURCE=auto (default): LibGen first, Anna's as fallback.
-    # SEARCH_SOURCE=lgli: LibGen only. SEARCH_SOURCE=annas: Anna's only.
-    local used_lgli=false
-    if [ "$SEARCH_SOURCE" != "annas" ]; then
-        if lgli_search_fetch "$query"; then
-            used_lgli=true
-        elif [ "$SEARCH_SOURCE" = "lgli" ]; then
-            echo "Search failed. Mirror diagnostics:"
-            sed 's/^/  /' "$TMP_DIR/last_search_diagnostic" 2>/dev/null
-            sleep 2
-            return 1
-        fi
-    fi
-
-    if [ "$used_lgli" = false ]; then
-
-    local filters=""
-    if [ -f "$SCRIPT_DIR"/tmp/current_filter_params ]; then
-        filters=$(cat "$SCRIPT_DIR/tmp/current_filter_params")
-    fi
-    
-    local encoded_query=$(echo "$query" | sed 's/ /+/g')
-    local search_url="$ANNAS_URL/search?page=${page}&q=${encoded_query}${filters}"
-    local html_content="$(curl -A "$KINDLEFETCH_USER_AGENT" -f -s -L \
-        --connect-timeout 5 --max-time 20 "$search_url")" || html_content=""
-    if [ -z "$html_content" ] && [ -n "$PROXY_URL" ]; then
-        html_content="$(curl -A "$KINDLEFETCH_USER_AGENT" -f -s -L \
-            --connect-timeout 5 --max-time 20 -x "$PROXY_URL" "$search_url")" || \
-            html_content=""
-    fi
-    
-    local last_page="$(echo "$html_content" | grep -o 'page=[0-9]\+"' | sort -t= -k2 -nr | head -1 | cut -d= -f2 | tr -d '"')"
-    [ -z "$last_page" ] && last_page=1
-    
-    local has_prev=false
-    [ "$page" -gt 1 ] && has_prev=true
-    
-    local has_next=false
-    [ "$page" -lt "$last_page" ] && has_next=true
-
-    echo "$query" > "$TMP_DIR"/last_search_query
-    echo "$page" > "$TMP_DIR"/last_search_page
-    echo "$last_page" > "$TMP_DIR"/last_search_last_page
-    echo "$has_next" > "$TMP_DIR"/last_search_has_next
-    echo "$has_prev" > "$TMP_DIR"/last_search_has_prev
-    
-    local books="$(echo $html_content | awk '
-        BEGIN {
-            RS = "<div class=\"flex pt-3 pb-3 border-b last:border-b-0 border-gray-100\">"
-            print "["
-            count = 0
-        }
-        NR > 1 {
-            title = ""; author = ""; md5 = ""; format = ""; description = ""
-        
-            # md5
-            if (match($0, /href="\/md5\/[a-f0-9]{32}"/)) {
-                md5 = substr($0, RSTART+11, 32)
-            }
-        
-            # title
-            if (match($0, /<div class="font-bold text-violet-900 line-clamp-\[5\]" data-content="[^"]+"/)) {
-                block = substr($0, RSTART, RLENGTH)
-                if (match(block, /data-content="[^"]+"/)) {
-                    title = substr(block, RSTART+14, RLENGTH-15)
-                }
-            }
-        
-            # author
-            if ($0 ~ /<div[^>]*class="[^"]*font-bold[^"]*text-amber-900[^"]*line-clamp-\[2\][^"]*"/) {
-                if (match($0, /<div[^>]*class="[^"]*font-bold[^"]*text-amber-900[^"]*line-clamp-\[2\][^"]*" data-content="[^"]+"/)) {
-                    block = substr($0, RSTART, RLENGTH)
-                    if (match(block, /data-content="[^"]+"/)) {
-                        author = substr(block, RSTART+14, RLENGTH-15)
-                    }
-                }
-            }
-        
-            # format
-            if (match($0, /<div class="text-gray-800[^>]*>[^<]+/)) {
-                line = substr($0, RSTART, RLENGTH)
-                if (match(line, />[^<]+/)) {
-                    content = substr(line, RSTART+1, RLENGTH-1)
-                    n = split(content, parts, " · ")
-                    if (n >= 2) {
-                        format = parts[2]
-                    }
-                }
-            }
-            
-            # description
-            if (match($0, /<div[^>]*class="[^"]*text-gray-800[^"]*font-semibold[^"]*text-sm[^"]*leading-\[1\.2\][^"]*mt-2[^"]*"[^>]*>.*?<\/div>/)) {
-                line = substr($0, RSTART, RLENGTH)
-
-                gsub(/<script[^>]*>[^<]*(<[^>]*>[^<]*)*<\/script>/, "", line)
-
-                gsub(/<a[^>]*>[^<]*(<[^>]*>[^<]*)*<\/a>/, "", line)
-
-                gsub(/<[^>]*>/, "", line)
-
-                gsub(/&[#a-zA-Z0-9]+;/, "", line)
-
-                gsub(/^[ \t\r\n]+|[ \t\r\n]+$/, "", line)
-
-                description = line
-            }
-        
-            # emoji replacements
-            gsub(/🚀/, "Partner Server", description)
-            gsub(/📗|📘|📕|📰|💬|📝|🤨|🎶|✅/, "", description)
-        
-            # escape double quotes
-            gsub(/"/, "\\\"", title)
-            gsub(/"/, "\\\"", author)
-            gsub(/"/, "\\\"", description)
-        
-            if (title != "") {
-                if (count > 0) {
-                    printf ",\n"
-                }
-                printf "  {\"author\": \"%s\", \"format\": \"%s\", \"md5\": \"%s\", \"title\": \"%s\", \"url\": \"%s/md5/%s\", \"description\": \"%s\"}", author, format, md5, title, base_url, md5, description
-                count++
-            }
-        }
-        END {
-            print "\n]"
-        }'
-    )"
-    
-    echo "$books" > "$TMP_DIR"/search_results.json
-    echo "Anna's Archive ($ANNAS_URL)" > "$TMP_DIR"/last_search_source
-
-    local book_count="$(echo "$books" | grep -o '"title":' | wc -l)"
-    if [ "$book_count" -le 0 ]; then
+    if ! catalog_search "$query" "$page"; then
         echo "No results were returned. Mirror diagnostics:"
         sed 's/^/  /' "$TMP_DIR/last_search_diagnostic" 2>/dev/null
-        [ -z "$html_content" ] && echo "  Anna's Archive: connection failed"
         return 1
-    fi
-
     fi
 
     while true; do
@@ -229,10 +58,11 @@ search_books() {
         local last_page="$(cat "$TMP_DIR"/last_search_last_page 2>/dev/null || echo 1)"
         local has_next="$(cat "$TMP_DIR"/last_search_has_next 2>/dev/null || echo "false")"
         local has_prev="$(cat "$TMP_DIR"/last_search_has_prev 2>/dev/null || echo "false")"
-        local books="$(cat "$TMP_DIR"/search_results.json 2>/dev/null)"
-        local count="$(echo "$books" | grep -o '"title":' | wc -l)"
+        local catalog_source count
+        catalog_source="$(cat "$TMP_DIR/last_search_source")"
+        count="$(catalog_lua count "$TMP_DIR/search_results.json")" || return 1
 
-        display_books "$books" "$current_page" "$has_prev" "$has_next" "$last_page"
+        display_books "$current_page" "$has_prev" "$has_next" "$last_page" "$catalog_source"
         
         echo -n "Enter choice: "
         read -r choice
@@ -244,6 +74,7 @@ search_books() {
             [pP])
                 if [ "$has_prev" = true ]; then
                     new_page=$((current_page - 1))
+                    case "$catalog_source" in Anna*) catalog_search "$query" "$new_page" annas || return 1;; esac
                     echo "$new_page" > "$TMP_DIR"/last_search_page
                     has_prev="$([ "$new_page" -gt 1 ] && echo "true" || echo "false")"
                     has_next="$([ "$new_page" -lt "$last_page" ] && echo "true" || echo "false")"
@@ -258,6 +89,7 @@ search_books() {
             [nN])
                 if [ "$has_next" = true ]; then
                     new_page=$((current_page + 1))
+                    case "$catalog_source" in Anna*) catalog_search "$query" "$new_page" annas || return 1;; esac
                     echo "$new_page" > "$TMP_DIR"/last_search_page
                     has_prev="$([ "$new_page" -gt 1 ] && echo "true" || echo "false")"
                     has_next="$([ "$new_page" -lt "$last_page" ] && echo "true" || echo "false")"
@@ -274,6 +106,7 @@ search_books() {
                 if echo "$page_number" | grep -qE '^[0-9]+$'; then
                     if [ "$page_number" -ge 1 ] && [ "$page_number" -le "$last_page" ]; then
                         if [ "$page_number" -ne "$current_page" ]; then
+                            case "$catalog_source" in Anna*) catalog_search "$query" "$page_number" annas || return 1;; esac
                             echo "$page_number" > "$TMP_DIR"/last_search_page
                             has_prev="$([ "$page_number" -gt 1 ] && echo "true" || echo "false")"
                             has_next="$([ "$page_number" -lt "$last_page" ] && echo "true" || echo "false")"
@@ -295,7 +128,8 @@ search_books() {
                 ;;
             *)  
                 if echo "$choice" | grep -qE '^[0-9]+$'; then
-                    local start=$(( (current_page - 1) * RESULTS_PER_PAGE ))
+                    local start=0
+                    case "$catalog_source" in LibGen*) start=$(( (current_page - 1) * RESULTS_PER_PAGE ));; esac
                     local end=$(( start + RESULTS_PER_PAGE - 1 ))
                     [ "$end" -ge "$count" ] && end=$((count - 1))
                     local items_on_page=$(( end - start + 1 ))
@@ -303,19 +137,15 @@ search_books() {
                     if [ "$choice" -ge 1 ] && [ "$choice" -le "$items_on_page" ]; then
                         absolute_index=$(( start + choice - 1 ))
 
-                        book_info="$(awk -v i=$absolute_index \
-                            'BEGIN{RS="\\{"; FS="\\}"} NR==i+2{print $1}' \
-                            "$TMP_DIR"/search_results.json)"
-
-                        local lgli_available=false
-                        local zlib_available=false
-
-                        if echo "$book_info" | grep -q "lgli"; then
-                            lgli_available=true
-                        fi
-                        if echo "$book_info" | grep -q "zlib"; then
-                            zlib_available=true
-                        fi
+                        local result_index=$((absolute_index + 1))
+                        local description lgli_available=false zlib_available=false
+                        description="$(catalog_book_field "$result_index" description)"
+                        case "$(catalog_book_field "$result_index" id)" in
+                            ''|*[!0-9]*) ;;
+                            *) lgli_available=true;;
+                        esac
+                        case "$description" in *lgli*) lgli_available=true;; esac
+                        case "$description" in *zlib*) zlib_available=true;; esac
 
                         while true; do
                             if [ "$lgli_available" = false ] && [ "$zlib_available" = false ]; then

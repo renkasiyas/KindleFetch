@@ -14,5 +14,8 @@ git -C "$root" archive "$ref" kindlefetch > "$stage/release.tar"
 tar -xf "$stage/release.tar" -C "$stage"
 git -C "$root" show "$ref:LICENSE" > "$stage/kindlefetch/LICENSE"
 printf '%s\n' "$version" > "$stage/kindlefetch/bin/.version"
+if [ -d "$stage/kindlefetch/gui" ]; then
+    printf '%s\n' "${version#v}" > "$stage/kindlefetch/gui/version.txt"
+fi
 (cd "$stage" && COPYFILE_DISABLE=1 zip -q -r release.zip kindlefetch)
 mv "$stage/release.zip" "$output/kindlefetch.zip"

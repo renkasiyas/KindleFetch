@@ -6,33 +6,32 @@ lgli_search_fetch() {
     local query="$1"
     [ -n "$query" ] || return 1
 
-    local endpoint="https://libgen.pw/api/search/by-params"
-    local raw="$TMP_DIR/kindlefetch-lgli-response.$$"
-    local books="$TMP_DIR/kindlefetch-lgli-books.$$"
+    local endpoint status=1
+    local raw="$TMP_DIR/catalog-response.json"
+    local books="$TMP_DIR/catalog-books.json"
     : > "$TMP_DIR/last_search_diagnostic"
-
-    if ! curl -A "$KINDLEFETCH_USER_AGENT" -f -sS -L -G \
-        --connect-timeout 5 --max-time 20 \
-        --data-urlencode "query=$query" \
-        --data-urlencode 'collection=fiction' \
-        --data-urlencode 'from=0' \
-        -o "$raw" "$endpoint"; then
-        echo "$endpoint: connection failed" > "$TMP_DIR/last_search_diagnostic"
-        rm -f "$raw" "$books"
-        return 1
-    fi
-
-    if ! LUA_PATH='/mnt/us/koreader/common/?.lua;;' \
-        /mnt/us/koreader/luajit "$SCRIPT_DIR/lgli_spa_json.lua" search "$raw" > "$books"; then
-        echo "$endpoint: invalid response or no supported books" > \
-            "$TMP_DIR/last_search_diagnostic"
-        rm -f "$raw" "$books"
-        return 1
-    fi
+    for endpoint in https://libgen.pw https://randombook.org https://libgen.me https://libgen.xyz; do
+        if ! curl -A "$KINDLEFETCH_USER_AGENT" -fsSL --proto '=https' --proto-redir '=https' \
+            --connect-timeout 5 --max-time 15 --get --data-urlencode "query=$query" \
+            --data-urlencode 'collection=fiction' --data-urlencode 'from=0' \
+            -o "$raw" "$endpoint/api/search/by-params"; then
+            printf '%s\n' "$endpoint: connection failed" >> "$TMP_DIR/last_search_diagnostic"
+            continue
+        fi
+        if lgli_read_response search "$raw" > "$books"; then
+            status=0
+            break
+        else
+            status=$?
+        fi
+        [ "$status" -eq 3 ] && return 3
+        printf '%s\n' "$endpoint: invalid search response" >> "$TMP_DIR/last_search_diagnostic"
+    done
+    [ "$status" -eq 0 ] || return 1
     rm -f "$raw"
 
     local count
-    count="$(grep -c '"title":' "$books")"
+    count="$(catalog_lua count "$books")" || return 1
     if [ "$count" -le 0 ]; then
         rm -f "$books"
         return 1
@@ -47,7 +46,7 @@ lgli_search_fetch() {
         echo false > "$TMP_DIR/last_search_has_next"
     fi
     echo false > "$TMP_DIR/last_search_has_prev"
-    echo 'LibGen (libgen.pw API)' > "$TMP_DIR/last_search_source"
+    printf 'LibGen (%s)\n' "$endpoint" > "$TMP_DIR/last_search_source"
     mv "$books" "$TMP_DIR/search_results.json"
     : > "$TMP_DIR/last_search_diagnostic"
     return 0

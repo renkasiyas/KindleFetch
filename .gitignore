@@ -8,3 +8,5 @@ venv/
 kindlefetch.zip
 .version
 zlib_cookies.txt
+
+/kindlefetch/bin/tmp/

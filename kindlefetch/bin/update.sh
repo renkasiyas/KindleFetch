@@ -80,6 +80,10 @@ rk_install_release() (
                 cp -p "$install_root/bin/$file" "$next/bin/$file"
             fi
         done
+        if [ -f "$install_root/bin/tmp/current_filter_params" ]; then
+            mkdir -p "$next/bin/tmp"
+            cp -p "$install_root/bin/tmp/current_filter_params" "$next/bin/tmp/current_filter_params"
+        fi
         if [ -d "$install_root/bin/curl" ] && [ ! -d "$next/bin/curl" ]; then
             cp -Rp "$install_root/bin/curl" "$next/bin/curl"
         fi
@@ -88,6 +92,11 @@ rk_install_release() (
         mv "$install_root" "$backup/kindlefetch"
     fi
     mv "$next" "$install_root"
+    if [ -f "$install_root/register-gui.sh" ] && ! sh "$install_root/register-gui.sh"; then
+        mv "$install_root" "$stage/failed-install"
+        echo 'Could not register KindleFetch in KOReader' >&2
+        exit 1
+    fi
     printf 'Installed KindleFetch %s\n' "$tag"
     if [ -n "$backup" ]; then printf 'Previous installation: %s/kindlefetch\n' "$backup"; fi
 )

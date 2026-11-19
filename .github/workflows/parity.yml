@@ -1,0 +1,23 @@
+name: KindleFetch checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the Kindle Lua runtime and JSON module
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq luajit lua-dkjson
+      - name: Check both interfaces
+        run: |
+          json_module="$(dpkg -L lua-dkjson | awk '/\/5\.1\/dkjson\.lua$/ {print; exit}')"
+          tests/parity.sh "$json_module" luajit
+      - name: Compile the package sources
+        run: |
+          find kindlefetch -name '*.lua' -exec sh -c 'for file do luajit -b "$file" /dev/null || exit; done' sh {} +
+          find kindlefetch -name '*.sh' -exec sh -c 'for file do sh -n "$file" || exit; done' sh {} +

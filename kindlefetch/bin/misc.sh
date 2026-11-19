@@ -106,7 +106,7 @@ remember_working_lgli_url() {
 }
 
 load_config() {
-    eval "$(base64 -d "$LINK_CONFIG_FILE")"
+    eval "$(base64 -d < "$LINK_CONFIG_FILE")"
     if [ -f "$CONFIG_FILE" ]; then
         . "$CONFIG_FILE"
     else
@@ -185,21 +185,32 @@ cleanup() {
           "$TMP_DIR"/last_search_*
 }
 
+config_line() {
+    local escaped
+    escaped="$(printf '%s' "$2" | sed "s/'/'\\\\''/g")"
+    printf "%s='%s'\n" "$1" "$escaped"
+}
+
 save_config() {
+    local temp
+    temp="$(mktemp "$CONFIG_FILE.XXXXXX")" || return 1
     {
-        echo "KINDLE_DOCUMENTS=\"$KINDLE_DOCUMENTS\""
-        echo "CREATE_SUBFOLDERS=\"$CREATE_SUBFOLDERS\""
-        echo "DEBUG_MODE=\"$DEBUG_MODE\""
-        echo "COMPACT_OUTPUT=\"$COMPACT_OUTPUT\""
-        echo "ENFORCE_DNS=\"$ENFORCE_DNS\""
-        echo "ZLIB_AUTH=\"$ZLIB_AUTH\""
-        echo "ZLIB_USERNAME=\"$ZLIB_USERNAME\""
-        echo "RESULTS_PER_PAGE=\"$RESULTS_PER_PAGE\""
-        echo "SEARCH_SOURCE=\"$SEARCH_SOURCE\""
-        echo "ANNAS_URL=\"$ANNAS_URL\""
-        echo "LGLI_URL=\"$LGLI_URL\""
-        echo "ZLIB_URL=\"$ZLIB_URL\""
-    } > "$CONFIG_FILE"
+        config_line KINDLE_DOCUMENTS "$KINDLE_DOCUMENTS"
+        config_line CREATE_SUBFOLDERS "$CREATE_SUBFOLDERS"
+        config_line DEBUG_MODE "$DEBUG_MODE"
+        config_line COMPACT_OUTPUT "$COMPACT_OUTPUT"
+        config_line ENFORCE_DNS "$ENFORCE_DNS"
+        config_line ZLIB_AUTH "$ZLIB_AUTH"
+        config_line ZLIB_USERNAME "$ZLIB_USERNAME"
+        config_line RESULTS_PER_PAGE "$RESULTS_PER_PAGE"
+        config_line SEARCH_SOURCE "$SEARCH_SOURCE"
+        config_line ANNAS_URL "$ANNAS_URL"
+        config_line LGLI_URL "$LGLI_URL"
+        config_line ZLIB_URL "$ZLIB_URL"
+    } > "$temp" && mv "$temp" "$CONFIG_FILE" || {
+        rm -f "$temp"
+        return 1
+    }
 }
 
 zlib_login() {
