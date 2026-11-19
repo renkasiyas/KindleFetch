@@ -90,7 +90,7 @@ catalog_query() {
         return 1
     fi
 
-    local last_page="$(echo "$html_content" | grep -oE 'page=[0-9]+"' | sort -t= -k2 -nr | head -1 | cut -d= -f2 | tr -d '"')"
+    local last_page="$(printf '%s' "$html_content" | grep -oE 'page=[0-9]+"' | cut -d '=' -f 2 | tr -d '"' | sort -nr | head -1)"
     [ -z "$last_page" ] && last_page=1
 
     local has_prev=false
