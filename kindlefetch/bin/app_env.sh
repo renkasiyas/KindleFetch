@@ -28,6 +28,7 @@ RESULTS_PER_PAGE=10
 # download requests reach the real application.
 KINDLEFETCH_USER_AGENT="${KINDLEFETCH_USER_AGENT:-libgen-downloader/3.3.5}"
 MIRROR_CONFIG_URL="${MIRROR_CONFIG_URL:-https://raw.githubusercontent.com/obsfx/libgen-downloader/configuration/config.v3.json}"
+LGLI_CATALOG_URLS="https://libgen.pw https://randombook.org https://libgen.me https://libgen.xyz"
 RK_HARDENING_DIR="${RK_HARDENING_DIR:-$BASE_DIR/extensions/kindlefetch-rk-hardening}"
 MIRROR_CONFIG_CACHE="$RK_HARDENING_DIR/mirror-config.cache"
 LAST_WORKING_LGLI_FILE="$RK_HARDENING_DIR/last-working-lgli"

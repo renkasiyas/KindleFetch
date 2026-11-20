@@ -33,7 +33,7 @@ case "$1" in
         case "$5" in /*.part) ;; *) exit 2;; esac
         refresh_lgli_config
         partial="$(mktemp "$5.kf.XXXXXX")" || exit 1
-        lgli_fetch_book "$2" "$3" "$4" "$partial" || exit 1
+        lgli_fetch_book "$2" "$3" "$4" "$partial" || exit $?
         mv "$partial" "$5"
         ;;
     update-check)

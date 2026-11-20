@@ -10,7 +10,7 @@ lgli_search_fetch() {
     local raw="$TMP_DIR/catalog-response.json"
     local books="$TMP_DIR/catalog-books.json"
     : > "$TMP_DIR/last_search_diagnostic"
-    for endpoint in https://libgen.pw https://randombook.org https://libgen.me https://libgen.xyz; do
+    for endpoint in $LGLI_CATALOG_URLS; do
         if ! curl -A "$KINDLEFETCH_USER_AGENT" -fsSL --proto '=https' --proto-redir '=https' \
             --connect-timeout 5 --max-time 15 --get --data-urlencode "query=$query" \
             --data-urlencode 'collection=fiction' --data-urlencode 'from=0' \

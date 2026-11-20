@@ -29,6 +29,7 @@ local SearchCache = require("cache.searchcache")
 local UrlCache = require("cache.urlcache")
 local CurlUpdater = require("updater.curlupdater")
 local CurlUtil = require("util.curlutil")
+local TerminalMode = require("ui.terminalmode")
 local PluginUpdater = require("updater.pluginupdater")
 local FileUtil = require("util.fileutil")
 local Errors = require("util.errors")
@@ -134,7 +135,7 @@ end
 -- sent by the dispatcher actions, e.g. when a gesture is assigned to one
 -- (the search box, for the sites ticked in it last, or for one site, from the gestures for each there were before)
 function KindleFetch:onKindleFetch()
-    self:setupUI()
+    self:showApp()
     return true
 end
 function KindleFetch:onKindleFetchArchive()
@@ -219,6 +220,14 @@ function KindleFetch:init()
         self:addToHighlightDialog()
     end
 
+    local request = os.getenv("KINDLEFETCH_OPEN_REQUEST")
+    if request and request:match("^/var/tmp/kindlefetch%-open%.%w+$") and os.remove(request) then
+        -- Give the file manager and its startup widgets time to mount first.
+        UIManager:tickAfterNext(function()
+            self:showApp(true)
+        end)
+    end
+
     -- if network is connected, schedule update checks after UI is ready
     if
         not update_check_scheduled
@@ -248,16 +257,75 @@ function KindleFetch:checkForUpdates()
     end)
 end
 
+function KindleFetch:showApp(from_kindle)
+    if self.app_menu and UIManager:isWidgetShown(self.app_menu) then
+        return
+    end
+
+    local menu = Menu:new{
+        title = "KindleFetch",
+        subtitle = _("Touch mode"),
+        width = self.dimen.w,
+        height = self.dimen.h,
+        is_borderless = true,
+        is_popout = false,
+        covers_fullscreen = true,
+        item_table = {
+            {
+                text = _("Search for books"),
+                callback = function()
+                    self:setupUI(nil, nil, nil, nil, true)
+                end,
+            },
+            {
+                text = _("Downloads"),
+                callback = function()
+                    self:showDownloads()
+                end,
+            },
+            {
+                text = _("Settings"),
+                callback = function()
+                    SettingsPage:showSettings()
+                end,
+            },
+            {
+                text = _("Terminal mode"),
+                callback = function()
+                    TerminalMode.open()
+                end,
+            },
+            {
+                text = _("Check for updates"),
+                callback = function()
+                    self:checkForUpdates()
+                end,
+            },
+        },
+    }
+    function menu:onMenuSelect(item)
+        item.callback()
+        return true
+    end
+    menu.close_callback = function()
+        self.app_menu = nil
+        if from_kindle then
+            self.ui:onClose()
+        end
+    end
+    self.app_menu = menu
+    UIManager:show(menu)
+end
+
 function KindleFetch:addToMainMenu(menu_items)
     menu_items.kindlefetch = {
         text = _("Kindle Fetch"),
         sorting_hint = "search",
         sub_item_table = {
             {
-                -- the sites ticked in it (see chooseSites)
-                text = _("Search"),
+                text = _("Open KindleFetch"),
                 callback = function()
-                    self:setupUI()
+                    self:showApp()
                 end,
             },
             {
@@ -489,7 +557,7 @@ end
 -- otherwise those ticked last (see KindleFetchSettings:getSearchSources). with query in it, where given, narrowed down
 -- to scope (e.g. only the books' authors, see SCOPES in Sources) where given, on the sites that can be, and searching
 -- straight away when search_now is set, e.g. another site for what one found nothing for (see otherSites)
-function KindleFetch:setupUI(query, scope, sources, search_now)
+function KindleFetch:setupUI(query, scope, sources, search_now, fullscreen)
     -- grab self reference for callbacks
     local this = self
     local chosen = sources or KindleFetchSettings:getSearchSources()
@@ -507,7 +575,8 @@ function KindleFetch:setupUI(query, scope, sources, search_now)
     local buttons = {
         {
             {
-                text = "Cancel",
+                text = fullscreen and _("Back") or _("Cancel"),
+                id = "close",
                 callback = function()
                     UIManager:close(this.search_box)
                 end,
@@ -532,11 +601,15 @@ function KindleFetch:setupUI(query, scope, sources, search_now)
     }
     self.search_box = InputDialog:new({
         title = _("Search for books"),
+        input_hint = _("Title, author, or ISBN"),
         input = query,
         input_type = "text",
+        fullscreen = fullscreen == true,
+        keyboard_visible = true,
         buttons = buttons,
     })
     UIManager:show(self.search_box)
+    if fullscreen then self.search_box:onShowKeyboard(true) end
     if query and search_now then
         self:performSearch()
     end

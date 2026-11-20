@@ -8,7 +8,7 @@ lgli_read_response() {
 lgli_download_hash() {
     local id="$1" manifest="$2"
     local catalog hash
-    for catalog in https://libgen.pw https://randombook.org; do
+    for catalog in $LGLI_CATALOG_URLS; do
         if curl -A "$KINDLEFETCH_USER_AGENT" -fsSL --proto '=https' --proto-redir '=https' \
             --connect-timeout 5 --max-time 15 -o "$manifest" "$catalog/api/download/links-by-id?id=$id" &&
             hash="$(lgli_read_response download-hash "$manifest")"; then
@@ -21,10 +21,11 @@ lgli_download_hash() {
 
 lgli_download_from_mirrors() {
     local hash="$1" format="$2" response="$3" partial="$4"
-    local mirror link actual_hash tried=''
+    local mirror link actual_hash status tried='' missing=false
     for mirror in $LGLI_URL $LGLI_MIRROR_URLS https://libgen.li https://libgen.vg https://libgen.la; do
         mirror="${mirror%/}"
         is_valid_lgli_url "$mirror" || continue
+        case "$mirror" in https://libgen.pw|https://libgen.me|https://libgen.xyz) continue;; esac
         case " $tried " in *" $mirror "*) continue;; esac
         tried="$tried $mirror"
         printf '\nTrying %s\n' "$mirror"
@@ -33,8 +34,15 @@ lgli_download_from_mirrors() {
             ! link="$(lgli_read_response mirror-link "$response")"; then
             continue
         fi
-        if ! curl -A "$KINDLEFETCH_USER_AGENT" -fS -# -L --proto '=https' --proto-redir '=https' \
-            --connect-timeout 5 --max-time 90 -o "$partial" "$mirror/$link"; then
+        : > "$partial" || return 1
+        status=0
+        curl -A "$KINDLEFETCH_USER_AGENT" --fail-with-body -S -# -L --proto '=https' --proto-redir '=https' \
+            --connect-timeout 5 --max-time 90 --speed-limit 1 --speed-time 12 \
+            -o "$partial" "$mirror/$link" || status=$?
+        if [ "$status" -ne 0 ]; then
+            if [ "$status" -eq 22 ] && head -c 512 "$partial" | grep -Fqi 'File not found'; then
+                missing=true
+            fi
             continue
         fi
         if ! validate_downloaded_book "$partial" "$format"; then
@@ -53,25 +61,29 @@ lgli_download_from_mirrors() {
         remember_working_lgli_url "$mirror" || true
         return 0
     done
+    if [ "$missing" = true ]; then return 41; fi
     return 1
 }
 
 lgli_fetch_book() {
     local id="$1" hash="$2" format="$3" partial="$4"
-    local response="$TMP_DIR/download-response"
+    local response="$TMP_DIR/download-response" status=0
     hash="$(printf '%s' "$hash" | tr '[:upper:]' '[:lower:]')"
     case "$format" in epub|azw3|mobi|pdf) :;; *) return 1;; esac
     if ! printf '%s\n' "$hash" | grep -qE '^[0-9a-f]{32}$'; then
         case "$id" in ''|*[!0-9]*) return 1;; esac
         if ! hash="$(lgli_download_hash "$id" "$response")"; then
             echo 'The catalog did not provide a checksum for this book' >&2
-            return 1
+            return 40
         fi
     fi
-    if ! lgli_download_from_mirrors "$hash" "$format" "$response" "$partial"; then
-        echo 'None of the Library Genesis mirrors returned the verified book' >&2
-        return 1
-    fi
+    lgli_download_from_mirrors "$hash" "$format" "$response" "$partial" || status=$?
+    case "$status" in
+        0) return 0;;
+        41) echo 'A Library Genesis mirror reported this edition missing. No mirror delivered it.' >&2;;
+        *) echo 'None of the Library Genesis mirrors returned the verified book' >&2;;
+    esac
+    return "$status"
 }
 
 lgli_download() {

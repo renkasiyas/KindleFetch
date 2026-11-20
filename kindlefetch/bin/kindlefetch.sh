@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # KindleFetch
 # Made by justrals
@@ -36,6 +36,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 . "$SCRIPT_DIR/setup.sh"
 . "$SCRIPT_DIR/settings.sh"
 
+echo "Starting KindleFetch…"
 check_for_updates
 load_config
 refresh_lgli_config
@@ -79,7 +80,7 @@ $(load_version) | https://github.com/renkasiyas/KindleFetch
         fi
         echo ""
         echo -n "Choose option: "
-        read -r choice
+        read -r choice || exit 0
         
         case "$choice" in
             1)

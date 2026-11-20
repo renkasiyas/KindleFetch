@@ -428,15 +428,21 @@ function pollDownload(transfer)
         if http_status and http_status < 400 then
             http_status = nil
         end
+        local failure
+        if transfer.startDownload then
+            failure = string.format("catalog downloader exited with status %d", exit_code)
+        else
+            failure = string.format("curl exited with code %d (%s%s)", exit_code,
+                exit_code == 0 and "empty file" or CurlUtil.getErrorMeaning(exit_code),
+                http_status and ", HTTP " .. http_status or "")
+        end
         LogUtil.warn(
             string.format(
-                "download of %q from %s failed after %ds: curl exit code %d (%s%s), %d of %s bytes",
+                "download of %q from %s failed after %ds: %s, %d of %s bytes",
                 book.title,
                 transfer.download_url and LogUtil.site(transfer.download_url) or Sources[book.source].NAME,
                 seconds,
-                exit_code,
-                exit_code == 0 and "empty file" or CurlUtil.getErrorMeaning(exit_code),
-                http_status and ", HTTP " .. http_status or "",
+                failure,
                 final_size or 0,
                 tostring(total_size or "unknown")
             )
@@ -457,9 +463,18 @@ function pollDownload(transfer)
         end
 
         FileUtil.removeFile(part_path)
-        local err = transfer.startDownload and _("The catalog mirrors could not deliver a verified book")
-            or exit_code == 0 and _("download produced empty file")
-            or CurlUtil.explainExitCode(exit_code)
+        local err
+        if transfer.startDownload then
+            if exit_code == 40 then
+                err = _("The catalog could not provide the checksum for this edition.")
+            elseif exit_code == 41 then
+                err = _("A mirror reported this edition missing. No mirror delivered it.")
+            else
+                err = _("The catalog mirrors could not deliver a verified book.")
+            end
+        else
+            err = exit_code == 0 and _("download produced empty file") or CurlUtil.explainExitCode(exit_code)
+        end
         if http_status then
             -- its servers failing, as they do while very busy, rather than e.g. the book not being there
             err = http_status >= 500

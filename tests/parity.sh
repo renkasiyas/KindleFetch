@@ -40,6 +40,14 @@ PYTHON
     fi
 done
 
+status=0
+KF_FIXTURE=missing sh "$app/bin/command.sh" download 50 '' epub "$test_root/missing.epub.part" > "$test_root/missing.log" 2>&1 ||
+    status=$?
+test "$status" -eq 41
+test ! -e "$test_root/missing.epub.part"
+test -z "$(find "$test_root" -name 'missing.epub.part.kf.*' -print)"
+echo 'Missing mirror files report a distinct error and leave no partial book.'
+
 mkdir -p "$test_root/koreader/plugins/kindlefetch.koplugin"
 printf '%s\n' 'return "old"' > "$test_root/koreader/plugins/kindlefetch.koplugin/main.lua"
 sh "$app/register-gui.sh"

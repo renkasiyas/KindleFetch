@@ -26,6 +26,9 @@ elif "/api/download/links-by-id" in url:
 elif "/ads.php" in url:
     answer = '<a href="/get.php?key=fixture&amp;book=50">GET</a>'
 elif "/get.php" in url:
+    if mode == "missing" or (mode == "primary" and "libgen.li/" in url):
+        Path(target).write_text("<h1>Error</h1><p>File not found. The repositories may not be synchronized.</p>")
+        sys.exit(22)
     answer = book_data.read_bytes()
 else:
     sys.exit(7)
