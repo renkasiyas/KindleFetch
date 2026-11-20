@@ -1,7 +1,7 @@
 -- Read a LibGen search, download manifest, or mirror download page.
 local json = require('dkjson')
 local action, file = arg[1], arg[2]
-if not file or (action ~= 'search' and action ~= 'download-hash' and action ~= 'mirror-link') then
+if not file or (action ~= 'search' and action ~= 'download-hash' and action ~= 'mirror-link' and action ~= 'torrent-links') then
   os.exit(2)
 end
 local handle = assert(io.open(file, 'rb'))
@@ -17,6 +17,16 @@ if action == 'mirror-link' then
     end
   end
   os.exit(3)
+end
+
+if action == 'torrent-links' then
+  for href in raw:gmatch('href%s*=%s*"([^"]+)"') do
+    if href:match('^/torrents/libgen/[%w_.-]+%.torrent$') or
+       href:match('^/torrents/fiction/[%w_.-]+%.torrent$') then
+      print(href)
+    end
+  end
+  return
 end
 
 local ok, payload = pcall(json.decode, raw)

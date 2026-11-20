@@ -35,6 +35,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 . "$SCRIPT_DIR/update.sh"
 . "$SCRIPT_DIR/setup.sh"
 . "$SCRIPT_DIR/settings.sh"
+trap 'lgli_torrent_cleanup; rm -rf "$TMP_DIR"' EXIT
 
 echo "Starting KindleFetch…"
 check_for_updates

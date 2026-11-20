@@ -48,6 +48,38 @@ test ! -e "$test_root/missing.epub.part"
 test -z "$(find "$test_root" -name 'missing.epub.part.kf.*' -print)"
 echo 'Missing mirror files report a distinct error and leave no partial book.'
 
+state="$test_root/extensions/kindlefetch-rk-hardening"
+cat > "$state/aria2c" <<'SH'
+#!/bin/sh
+set -eu
+hash="$(md5sum "$KINDLEFETCH_BASE_DIR/fixture.epub")"
+hash="${hash%% *}"
+for arg in "$@"; do
+    case "$arg" in
+        --show-files) printf '1|./batch/unrelated.epub\n2|./batch/%s\n' "$hash"; exit 0;;
+        --dir=*) dir="${arg#--dir=}";;
+        --select-file=*) selection="${arg#--select-file=}";;
+    esac
+done
+test "$selection" = 2
+mkdir -p "$dir/batch"
+if [ "$KF_FIXTURE" = torrent-corrupt ]; then
+    printf 'Not an EPUB\n' > "$dir/batch/$hash"
+else
+    cp "$KINDLEFETCH_BASE_DIR/fixture.epub" "$dir/batch/$hash"
+fi
+SH
+chmod +x "$state/aria2c"
+KF_FIXTURE=torrent sh "$app/bin/command.sh" download 50 '' epub "$test_root/torrent.epub.part" > "$test_root/torrent.log"
+cmp "$test_root/torrent.epub.part" "$test_root/fixture.epub"
+status=0
+KF_FIXTURE=torrent-corrupt sh "$app/bin/command.sh" download 50 '' epub "$test_root/corrupt.epub.part" > "$test_root/corrupt.log" 2>&1 ||
+    status=$?
+test "$status" -eq 41
+test ! -e "$test_root/corrupt.epub.part"
+test -z "$(find "$test_root" -name '*.torrent.*' -type d -print)"
+echo 'Torrent fallback selects only the matching file and rejects corrupt content.'
+
 mkdir -p "$test_root/koreader/plugins/kindlefetch.koplugin"
 printf '%s\n' 'return "old"' > "$test_root/koreader/plugins/kindlefetch.koplugin/main.lua"
 sh "$app/register-gui.sh"

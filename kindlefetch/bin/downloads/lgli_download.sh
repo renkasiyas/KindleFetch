@@ -19,9 +19,95 @@ lgli_download_hash() {
     return 1
 }
 
+lgli_check_book_file() {
+    local partial="$1" format="$2" hash="$3" actual_hash
+    if ! validate_downloaded_book "$partial" "$format"; then
+        echo 'Received an invalid book file' >&2
+        return 1
+    fi
+    actual_hash="$(md5sum "$partial")" || return 1
+    if [ "${actual_hash%% *}" != "$hash" ]; then
+        echo 'The file did not match the catalog checksum' >&2
+        return 1
+    fi
+    if [ "$format" = epub ] && ! unzip -t "$partial" >/dev/null 2>&1; then
+        echo 'EPUB archive failed validation' >&2
+        return 1
+    fi
+}
+
+lgli_torrent_cleanup() {
+    if [ -n "${lgli_torrent_pid:-}" ]; then
+        kill -TERM "$lgli_torrent_pid" 2>/dev/null || :
+        wait "$lgli_torrent_pid" 2>/dev/null || :
+        lgli_torrent_pid=''
+    fi
+    if [ -n "${lgli_torrent_dir:-}" ]; then
+        rm -rf "$lgli_torrent_dir"
+        lgli_torrent_dir=''
+    fi
+}
+
+lgli_download_torrent() {
+    local hash="$1" format="$2" response="$3" partial="$4"
+    local client="$RK_HARDENING_DIR/aria2c"
+    local mirror link selection status links='' seen=''
+    [ -s "$client" ] || return 1
+
+    for mirror in https://libgen.li https://libgen.vg https://libgen.bz; do
+        if curl -A "$KINDLEFETCH_USER_AGENT" -fsSL --proto '=https' --proto-redir '=https' \
+            --connect-timeout 5 --max-time 12 --max-filesize 1048576 \
+            -o "$response" "$mirror/file.php?md5=$hash"; then
+            links="$(lgli_read_response torrent-links "$response")" || continue
+            [ -n "$links" ] && break
+        fi
+    done
+    [ -n "$links" ] || return 1
+    lgli_torrent_dir="$(mktemp -d "$partial.torrent.XXXXXX")" || return 1
+
+    for link in $links; do
+        case " $seen " in *" $link "*) continue;; esac
+        seen="$seen $link"
+        if ! curl -A "$KINDLEFETCH_USER_AGENT" -fsSL --proto '=https' --proto-redir '=https' \
+            --connect-timeout 5 --max-time 20 --max-filesize 4194304 \
+            -o "$lgli_torrent_dir/book.torrent" "$mirror$link"; then
+            continue
+        fi
+        selection="$(LC_ALL=C "$client" --no-conf --show-files "$lgli_torrent_dir/book.torrent" |
+            awk -F '|' -v hash="$hash" -v format="$format" '
+                $1 ~ /^[0-9]+$/ && $2 ~ /^\.\/[a-zA-Z0-9_\/.\-]+$/ {
+                    path = substr($2, 3)
+                    count = split(path, components, "/")
+                    if (path ~ /(^|\/)\.\.?($|\/)/ || path ~ /\/\//) next
+                    file = tolower(components[count])
+                    if (file == hash || file == hash "." format) { print $1 "|" path; exit }
+                }')"
+        [ -n "$selection" ] || continue
+
+        printf '\nDownloading the matching file by torrent\n'
+        "$client" --no-conf --dir="$lgli_torrent_dir" --select-file="${selection%%|*}" \
+            --seed-time=0 --bt-stop-timeout=120 --bt-max-peers=24 --file-allocation=none \
+            --bt-remove-unselected-file=true --dht-file-path="$RK_HARDENING_DIR/aria2-dht.dat" \
+            --dht-file-path6="$RK_HARDENING_DIR/aria2-dht6.dat" --summary-interval=0 \
+            --show-console-readout=false \
+            "$lgli_torrent_dir/book.torrent" &
+        lgli_torrent_pid=$!
+        status=0
+        wait "$lgli_torrent_pid" || status=$?
+        lgli_torrent_pid=''
+        if [ "$status" -eq 0 ] && lgli_check_book_file "$lgli_torrent_dir/${selection#*|}" "$format" "$hash" &&
+            mv -f "$lgli_torrent_dir/${selection#*|}" "$partial"; then
+            lgli_torrent_cleanup
+            return 0
+        fi
+    done
+    lgli_torrent_cleanup
+    return 1
+}
+
 lgli_download_from_mirrors() {
     local hash="$1" format="$2" response="$3" partial="$4"
-    local mirror link actual_hash status tried='' missing=false
+    local mirror link status tried='' missing=false
     for mirror in $LGLI_URL $LGLI_MIRROR_URLS https://libgen.li https://libgen.vg https://libgen.la; do
         mirror="${mirror%/}"
         is_valid_lgli_url "$mirror" || continue
@@ -45,19 +131,7 @@ lgli_download_from_mirrors() {
             fi
             continue
         fi
-        if ! validate_downloaded_book "$partial" "$format"; then
-            echo 'The mirror returned an invalid book file' >&2
-            continue
-        fi
-        actual_hash="$(md5sum "$partial")"
-        if [ "${actual_hash%% *}" != "$hash" ]; then
-            echo 'The file did not match the catalog checksum' >&2
-            continue
-        fi
-        if [ "$format" = epub ] && ! unzip -t "$partial" >/dev/null 2>&1; then
-            echo 'EPUB archive failed validation' >&2
-            continue
-        fi
+        lgli_check_book_file "$partial" "$format" "$hash" || continue
         remember_working_lgli_url "$mirror" || true
         return 0
     done
@@ -78,6 +152,9 @@ lgli_fetch_book() {
         fi
     fi
     lgli_download_from_mirrors "$hash" "$format" "$response" "$partial" || status=$?
+    if [ "$status" -ne 0 ] && lgli_download_torrent "$hash" "$format" "$response" "$partial"; then
+        return 0
+    fi
     case "$status" in
         0) return 0;;
         41) echo 'A Library Genesis mirror reported this edition missing. No mirror delivered it.' >&2;;

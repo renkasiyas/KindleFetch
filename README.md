@@ -5,6 +5,10 @@ request, settings, edition order, and verified LibGen download code. The catalog
 first and uses the terminal's Anna’s Archive fallback. Results are shared for five minutes so
 switching modes keeps the same editions and order. The default library is `/mnt/us/Books`.
 
+With a compatible `aria2c` installed at `/mnt/us/extensions/kindlefetch-rk-hardening/aria2c`,
+both modes can retry a failed mirror download using a published LibGen torrent. The downloader
+selects the specific file by checksum, verifies the saved book, and stops seeding at completion.
+
 ## Install and use
 
 Install KUAL and KOReader on your jailbroken Kindle. On an older installation, choose

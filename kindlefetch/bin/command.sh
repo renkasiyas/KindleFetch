@@ -11,6 +11,7 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/kindlefetch-backend.XXXXXX")" || exit 1
 partial=''
 cleanup_command() {
+    lgli_torrent_cleanup
     rm -rf "$TMP_DIR"
     [ -z "$partial" ] || rm -f "$partial"
 }
